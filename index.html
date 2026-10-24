@@ -3,94 +3,92 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mediseller Support</title>
- 
+    <title>Autoveer — Vehicle Assistant</title>
+    <meta name="description" content="Autoveer authorised dealer assistant — Nissan, Bajaj, Ashok Leyland, Massey Ferguson">
     <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<div class="chat-container">
+<div class="page-bg" aria-hidden="true"></div>
 
-    <!-- ================= HEADER ================= -->
+<div class="chat-shell">
+    <div class="chat-container">
 
-    <div class="chat-header">
-
-        <div class="company-logo">
-            <img
-                src="https://tse3.mm.bing.net/th/id/OIP.ZCnMt1XqPZqMKyUJgQQlMQAAAA?r=0&rs=1&pid=ImgDetMain&o=7&rm=3"
-                alt="Mediseller Logo">
-        </div>
-
-
-        <div class="header-text">
-            <h2>Mediseller Support</h2>
-            <div class="status">
-                <span class="status-dot"></span>
-                <span>Online</span>
+        <header class="chat-header">
+            <div class="header-brand">
+                <div class="company-logo">
+                    <img
+                        src="https://i0.wp.com/autoveer.com/wp-content/uploads/2026/05/Untitled-design-4.png"
+                        alt="Autoveer">
+                </div>
+                <div class="header-text">
+                    <p class="header-tag">Authorised Automobile Dealer · Haryana</p>
+                    <h1>Autoveer Drive Assist</h1>
+                    <div class="status">
+                        <span class="status-dot"></span>
+                        <span>Online — sales &amp; service</span>
+                    </div>
+                </div>
             </div>
+            <a class="header-call" href="tel:9812000912" title="Call Autoveer">
+                <span class="call-icon">📞</span>
+                <span>9812000912</span>
+            </a>
+        </header>
+
+        <div class="brand-strip">
+            <span class="brand-chip">Nissan</span>
+            <span class="brand-chip">Bajaj</span>
+            <span class="brand-chip">Ashok Leyland</span>
+            <span class="brand-chip">Massey Ferguson</span>
         </div>
 
-    </div>
+        <div class="chat-body" id="chatBody"></div>
 
-    <!-- ================= CHAT BODY ================= -->
+        <div class="quick-actions" role="toolbar" aria-label="Quick actions">
+            <button type="button" class="option-btn" onclick="selectOption('Track Service')">
+                <span class="btn-icon">🔧</span> Service status
+            </button>
+            <button type="button" class="option-btn" onclick="selectOption('Book Test Drive')">
+                <span class="btn-icon">🚗</span> Test drive
+            </button>
+            <button type="button" class="option-btn" onclick="selectOption('Workshop Service')">
+                <span class="btn-icon">🛠️</span> Workshop
+            </button>
+            <button type="button" class="option-btn" onclick="selectOption('Raise Complaint')">
+                <span class="btn-icon">🎫</span> Complaint
+            </button>
+            <button type="button" class="option-btn option-btn--muted" onclick="selectOption('FAQs')">
+                <span class="btn-icon">❓</span> FAQ
+            </button>
+            <button type="button" class="option-btn option-btn--muted" onclick="selectOption('Terms & Conditions')">
+                <span class="btn-icon">📄</span> T&amp;C
+            </button>
+        </div>
 
-    <div class="chat-body" id="chatBody">
-
-        <!-- Messages will appear here dynamically -->
-
-    </div>
-
-    <!-- ================= QUICK ACTIONS ================= -->
-
-    <div class="quick-actions">
-
-        <button class="option-btn"
-            onclick="selectOption('Track My Order')">
-            📦 Track Order
-        </button>
-
-        <button class="option-btn"
-            onclick="selectOption('Product Reorder')">
-            🔄 Reorder
-        </button>
-
-        <button class="option-btn"
-            onclick="selectOption('Raise a Ticket')">
-            🎫 Raise Ticket
-        </button>
-
-        <button class="option-btn"
-            onclick="selectOption('FAQs')">
-            ❓ FAQ
-        </button>
-
-        <button class="option-btn"
-            onclick="selectOption('Terms & Conditions')">
-            📄 T&C
-        </button>
-
-    </div>
-
-    <!-- ================= FOOTER ================= -->
-
-    <div class="chat-footer">
-
-        <input
-            type="text"
-            id="userInput"
-            placeholder="Type your response here..."
-        >
-
-        <button onclick="sendMessage()">
-            Send
-        </button>
+        <footer class="chat-footer">
+            <input
+                type="text"
+                id="userInput"
+                placeholder="Ask about vehicles, service, branches…"
+                autocomplete="off"
+                aria-label="Message"
+            >
+            <button type="button" class="send-btn" onclick="sendMessage()" aria-label="Send message">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </button>
+        </footer>
 
     </div>
-
+    <p class="footer-note">Genuine parts · Finance · Insurance · 24+ years in Haryana</p>
 </div>
 
 <script src="script.js"></script>
-
 </body>
 </html>

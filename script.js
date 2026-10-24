@@ -1,1083 +1,604 @@
-const API_URL = "https://chatbot-v2-eqxa.onrender.com";
+const API_URL =
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1"
+        ? "http://127.0.0.1:8000"
+        : "https://YOUR-BACKEND-URL.onrender.com";
 
-let sessionId = localStorage.getItem("chat_session_id");
+const AUTOVEER_PHONE = "9812000912";
+const TYPING_TEXT = "Fetching vehicle & service data…";
+
+const BRANCHES = [
+    "Rohtak",
+    "Karnal",
+    "Bhiwani",
+    "Kurukshetra",
+    "Ladwa",
+    "Bahadurgarh",
+    "Jhajjar",
+    "Charkhi Dadri",
+];
+
+const VEHICLE_MODELS = {
+    Nissan: ["Magnite", "Other Nissan model"],
+    Bajaj: ["Platina", "Pulsar", "Other Bajaj model"],
+    "Ashok Leyland": ["Dost", "Partner", "Other CV model"],
+    "Massey Ferguson": ["241 DI", "Other tractor model"],
+};
+
+let sessionId = localStorage.getItem("av_session");
 if (!sessionId) {
-    sessionId = 'session_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
-    localStorage.setItem("chat_session_id", sessionId);
+    sessionId = "av_" + Date.now() + "_" + Math.random().toString(36).slice(2, 9);
+    localStorage.setItem("av_session", sessionId);
 }
 
-let conversationState = "awaiting_mobile";
 let userMobile = "";
-let selectedTicketCategory = "";
-let isAnyOtherTicket = false;
-let isTrackOrderFlow = false;
-let hasViewedOrder = false;
-let uploadedPhotoUrl = "";
-let hasUsedPreviousMobileForReorder = false;
-let availableOrdersToReorder = [];
-async function saveToBackend(data) {
-    try {
-        await fetch(`${API_URL}/save-data`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                session_id: sessionId,
-                mobile: data.mobile,
-                query: data.query
-            })
-        });
-    } catch (err) {
-        console.error(err);
-    }
+let conversationState = "awaiting_mobile";
+
+// ——— UI ———
+
+function removeTypingBubble() {
+    document.querySelector(".typing-bubble")?.closest(".msg-row")?.remove();
 }
-function createMessage(text, sender) {
+
+function createMessage(html, sender, options = {}) {
     const chatBody = document.getElementById("chatBody");
-    const div = document.createElement("div");
-    div.className =
-        sender === "user"
-            ? "user-message"
-            : "bot-message";
+    const row = document.createElement("div");
+    row.className = sender === "user" ? "msg-row msg-row--user" : "msg-row";
+
     if (sender === "bot") {
-    div.innerHTML = text;
-} else {
-    div.textContent = text;
-}
-    chatBody.appendChild(div);
+        const avatar = document.createElement("div");
+        avatar.className = "bot-avatar";
+        avatar.textContent = "🚗";
+        const bubble = document.createElement("div");
+        bubble.className = "bot-message" + (options.typing ? " typing-bubble" : "");
+        bubble.innerHTML = html;
+        row.appendChild(avatar);
+        row.appendChild(bubble);
+    } else {
+        const bubble = document.createElement("div");
+        bubble.className = "user-message";
+        bubble.textContent = html;
+        row.appendChild(bubble);
+    }
+    chatBody.appendChild(row);
     chatBody.scrollTop = chatBody.scrollHeight;
 }
-function updateChatUI(text, sender) {
-    createMessage(text, sender);
+
+function bot(html, options) {
+    createMessage(html, "bot", options);
 }
+function user(text) {
+    createMessage(text, "user");
+}
+
+async function logChat(message) {
+    try {
+        await fetch(`${API_URL}/chat-log`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                session_id: sessionId,
+                mobile: userMobile,
+                message,
+            }),
+        });
+    } catch (e) {
+        console.warn(e);
+    }
+}
+
+function bindForm(formId, onSubmit) {
+    requestAnimationFrame(() => {
+        const form = document.getElementById(formId);
+        if (!form) return;
+        form.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const fd = new FormData(form);
+            const btn = form.querySelector('button[type="submit"]');
+            if (btn) btn.disabled = true;
+            try {
+                await onSubmit(fd, form);
+            } catch (err) {
+                bot("❌ " + (err.message || "Could not save. Check Google Sheet setup."));
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        });
+    });
+}
+
+// ——— Workshop (PDF) ———
+
+function workshopLocationOptions() {
+    return `
+    <option value="">Select workshop</option>
+    <option value="Karnal|Bajaj 2 Wheeler">Karnal — Bajaj 2 Wheeler</option>
+    <option value="Kurukshetra|Bajaj 3 Wheeler">Kurukshetra — Bajaj 3 Wheeler</option>
+    <option value="Rohtak|Bajaj 3 Wheeler">Rohtak — Bajaj 3 Wheeler</option>
+    <option value="Bhiwani|Bajaj 3 Wheeler">Bhiwani — Bajaj 3 Wheeler</option>
+    <option value="Rohtak|Ashok Leyland Commercial Vehicle">Rohtak — Ashok Leyland CV</option>
+    <option value="Bahadurgarh|Ashok Leyland Commercial Vehicle">Bahadurgarh — Ashok Leyland CV</option>`;
+}
+
+function showWorkshopForm() {
+    const today = new Date().toISOString().slice(0, 10);
+    bot(`
+    <form id="workshopForm" class="chat-form">
+      <h4 class="form-title">Workshop service proforma</h4>
+      <label>Service date</label>
+      <input type="date" name="service_date" value="${today}" required>
+
+      <label>Workshop location</label>
+      <select name="workshop_pair" required>${workshopLocationOptions()}</select>
+
+      <label>Vehicle registration no.</label>
+      <input type="text" name="registration_no" placeholder="HR26AB1234" required>
+
+      <label>Customer name</label>
+      <input type="text" name="customer_name" required>
+
+      <label>Customer mobile</label>
+      <input type="tel" name="customer_mobile" pattern="[6-9][0-9]{9}" value="${userMobile || ""}" required>
+
+      <label>Job card no.</label>
+      <input type="text" name="job_card_no" placeholder="Optional">
+
+      <label>Service type</label>
+      <select name="service_type" required>
+        <option value="">Select type</option>
+        <option>Free Service</option>
+        <option>First Paid Service</option>
+        <option>Paid Service</option>
+        <option>AMC</option>
+      </select>
+
+      <div class="check-row">
+        <label class="check-label"><input type="checkbox" name="wash" value="Yes"> Vehicle washing done</label>
+      </div>
+      <div class="check-row">
+        <label class="check-label"><input type="checkbox" id="repairChk" name="repair" value="Yes"> Repairing done</label>
+      </div>
+      <label>Repair details</label>
+      <textarea name="repair_details" id="repairDetails" rows="2" placeholder="If repairing checked, describe work" disabled></textarea>
+
+      <div class="amount-grid">
+        <div><label>Labour ₹</label><input type="number" name="labour_amount" min="0" step="1" value="0" class="amt"></div>
+        <div><label>Parts ₹</label><input type="number" name="parts_amount" min="0" step="1" value="0" class="amt"></div>
+        <div><label>AMC ₹</label><input type="number" name="amc_amount" min="0" step="1" value="0" class="amt"></div>
+      </div>
+      <p class="total-line">Total: ₹<span id="wsTotal">0</span></p>
+
+      <label>Remarks</label>
+      <textarea name="remarks" rows="2" placeholder="Optional notes"></textarea>
+
+      <label class="check-label consent">
+        <input type="checkbox" name="confirm_data" required>
+        I confirm details are correct for workshop record
+      </label>
+
+      <button type="submit" class="form-submit">Save to workshop sheet</button>
+    </form>`);
+
+    bindForm("workshopForm", submitWorkshopForm);
+
+    requestAnimationFrame(() => {
+        const form = document.getElementById("workshopForm");
+        const repairChk = document.getElementById("repairChk");
+        const repairDetails = document.getElementById("repairDetails");
+        const totalEl = document.getElementById("wsTotal");
+
+        function recalc() {
+            const l = parseFloat(form.labour_amount.value) || 0;
+            const p = parseFloat(form.parts_amount.value) || 0;
+            const a = parseFloat(form.amc_amount.value) || 0;
+            totalEl.textContent = (l + p + a).toFixed(0);
+        }
+        form.querySelectorAll(".amt").forEach((el) => el.addEventListener("input", recalc));
+        repairChk?.addEventListener("change", () => {
+            repairDetails.disabled = !repairChk.checked;
+            if (!repairChk.checked) repairDetails.value = "";
+        });
+    });
+}
+
+async function submitWorkshopForm(fd) {
+    const pair = fd.get("workshop_pair").split("|");
+    const payload = {
+        service_date: fd.get("service_date"),
+        workshop_location: pair[0],
+        brand_vehicle_type: pair[1],
+        registration_no: String(fd.get("registration_no")).toUpperCase(),
+        customer_name: fd.get("customer_name"),
+        customer_mobile: fd.get("customer_mobile"),
+        job_card_no: fd.get("job_card_no") || "",
+        service_type: fd.get("service_type"),
+        vehicle_washing: fd.get("wash") ? "Yes" : "No",
+        repairing: fd.get("repair") ? "Yes" : "No",
+        repair_details: fd.get("repair_details") || "",
+        labour_amount: parseFloat(fd.get("labour_amount")) || 0,
+        parts_amount: parseFloat(fd.get("parts_amount")) || 0,
+        amc_amount: parseFloat(fd.get("amc_amount")) || 0,
+        remarks: fd.get("remarks") || "",
+    };
+    await logChat("Workshop form submit");
+    const res = await fetch(`${API_URL}/workshop`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Save failed");
+    bot(`✅ <b>Workshop record saved</b><br>Reference: <b>${data.reference_id}</b><br>Total: <b>₹${data.total_amount}</b>`);
+}
+
+// ——— Test drive ———
+
+function branchOptions() {
+    return BRANCHES.map((b) => `<option value="${b}">${b}</option>`).join("");
+}
+
+function showTestDriveForm() {
+    bot(`
+    <form id="testDriveForm" class="chat-form">
+      <h4 class="form-title">Book test drive</h4>
+      <label>Your name</label>
+      <input type="text" name="customer_name" required>
+      <label>Mobile</label>
+      <input type="tel" name="customer_mobile" pattern="[6-9][0-9]{9}" value="${userMobile || ""}" required>
+      <label>Vehicle brand</label>
+      <select name="vehicle_brand" id="tdBrand" required>
+        <option value="">Select brand</option>
+        <option>Nissan</option>
+        <option>Bajaj</option>
+        <option>Ashok Leyland</option>
+        <option>Massey Ferguson</option>
+      </select>
+      <label>Model</label>
+      <select name="vehicle_model" id="tdModel" required>
+        <option value="">Select brand first</option>
+      </select>
+      <label>Preferred branch</label>
+      <select name="preferred_branch" required>${branchOptions()}</select>
+      <label>Preferred date</label>
+      <input type="date" name="preferred_date">
+      <label>Notes</label>
+      <textarea name="notes" rows="2" placeholder="Time preference, etc."></textarea>
+      <label class="check-label consent">
+        <input type="checkbox" name="consent" value="Yes" required>
+        Autoveer may call/WhatsApp me on this number
+      </label>
+      <button type="submit" class="form-submit">Submit test drive request</button>
+    </form>`);
+
+    bindForm("testDriveForm", submitTestDriveForm);
+
+    requestAnimationFrame(() => {
+        const brand = document.getElementById("tdBrand");
+        const model = document.getElementById("tdModel");
+        brand?.addEventListener("change", () => {
+            const list = VEHICLE_MODELS[brand.value] || [];
+            model.innerHTML =
+                '<option value="">Select model</option>' +
+                list.map((m) => `<option>${m}</option>`).join("");
+        });
+    });
+}
+
+async function submitTestDriveForm(fd) {
+    const payload = {
+        customer_name: fd.get("customer_name"),
+        customer_mobile: fd.get("customer_mobile"),
+        vehicle_brand: fd.get("vehicle_brand"),
+        vehicle_model: fd.get("vehicle_model"),
+        preferred_branch: fd.get("preferred_branch"),
+        preferred_date: fd.get("preferred_date") || "",
+        consent_contact: fd.get("consent") ? "Yes" : "No",
+        notes: fd.get("notes") || "",
+    };
+    await logChat("Test drive form");
+    const res = await fetch(`${API_URL}/test-drive`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Failed");
+    bot(`✅ <b>Test drive booked</b><br>ID: <b>${data.booking_id}</b><br>${data.message}<br>📞 ${AUTOVEER_PHONE}`);
+}
+
+// ——— Track service ———
+
+function showTrackForm() {
+    bot(`
+    <form id="trackForm" class="chat-form">
+      <h4 class="form-title">Track service status</h4>
+      <label>Search by</label>
+      <select name="search_by" id="searchBy">
+        <option value="mobile">Registered mobile</option>
+        <option value="jobcard">Job card number</option>
+      </select>
+      <label id="trackLabel">Mobile number</label>
+      <input type="text" name="search_value" id="trackValue" pattern="[6-9][0-9]{9}" required>
+      <button type="submit" class="form-submit">Check status</button>
+    </form>`);
+
+    bindForm("trackForm", submitTrackForm);
+
+    requestAnimationFrame(() => {
+        const sel = document.getElementById("searchBy");
+        const label = document.getElementById("trackLabel");
+        const input = document.getElementById("trackValue");
+        sel?.addEventListener("change", () => {
+            if (sel.value === "jobcard") {
+                label.textContent = "Job card number";
+                input.pattern = "";
+                input.placeholder = "e.g. JC2026001";
+            } else {
+                label.textContent = "Mobile number";
+                input.pattern = "[6-9][0-9]{9}";
+                input.placeholder = "10-digit mobile";
+            }
+        });
+    });
+}
+
+async function submitTrackForm(fd) {
+    const by = fd.get("search_by");
+    const val = String(fd.get("search_value")).trim();
+    const body =
+        by === "jobcard"
+            ? { job_card_no: val, mobile: "" }
+            : { mobile: val, job_card_no: "" };
+    await logChat("Track service: " + by);
+    const res = await fetch(`${API_URL}/track-service`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!data.found) {
+        bot("No service record found. Call <b>" + AUTOVEER_PHONE + "</b> with your job card.");
+        return;
+    }
+    bot(`
+    <b>Service status</b><br><br>
+    👤 ${data.customer_name}<br>
+    🧾 Job card: <b>${data.job_card_no}</b><br>
+    🚗 ${data.vehicle} (${data.registration_no})<br>
+    📍 ${data.workshop_location}<br>
+    ⚙️ <b>${data.service_status}</b><br>
+    📅 Expected: ${data.expected_date || "—"}<br>
+    📝 ${data.status_notes || "—"}<br>
+    🔧 ${data.service_type || "—"}`);
+}
+
+// ——— Complaint ———
+
+function showComplaintForm() {
+    bot(`
+    <form id="complaintForm" class="chat-form">
+      <h4 class="form-title">Register complaint</h4>
+      <label>Category</label>
+      <select name="category" required>
+        <option value="">Select category</option>
+        <option>Service delay</option>
+        <option>Billing / estimate issue</option>
+        <option>Spare parts issue</option>
+        <option>Warranty claim</option>
+        <option>Booking / delivery issue</option>
+        <option>Workshop quality</option>
+        <option>Other</option>
+      </select>
+      <label>Mobile</label>
+      <input type="tel" name="mobile" pattern="[6-9][0-9]{9}" value="${userMobile || ""}" required>
+      <label>Description</label>
+      <textarea name="description" rows="3" required placeholder="Describe the issue"></textarea>
+      <label class="check-label"><input type="checkbox" name="urgent" value="Yes"> Mark as urgent</label>
+      <label>Photo (optional)</label>
+      <input type="file" name="photo" accept="image/*" id="complaintPhoto">
+      <label class="check-label consent">
+        <input type="checkbox" name="confirm" required>
+        Information provided is correct
+      </label>
+      <button type="submit" class="form-submit">Submit complaint</button>
+    </form>`);
+
+    bindForm("complaintForm", submitComplaintForm);
+}
+
+async function submitComplaintForm(fd) {
+    let photoUrl = "";
+    const file = fd.get("photo");
+    if (file && file.size > 0) {
+        const up = new FormData();
+        up.append("file", file);
+        const ur = await fetch(`${API_URL}/upload-photo`, { method: "POST", body: up });
+        const uj = await ur.json();
+        if (uj.url) photoUrl = uj.url;
+    }
+    const payload = {
+        mobile: fd.get("mobile"),
+        category: fd.get("category"),
+        description: fd.get("description"),
+        urgent: fd.get("urgent") ? "Yes" : "No",
+        photo_url: photoUrl,
+    };
+    await logChat("Complaint: " + payload.category);
+    const res = await fetch(`${API_URL}/ticket`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Failed");
+    bot(`✅ Complaint registered<br>Ticket: <b>${data.ticket_id}</b><br>${data.created_on}`);
+}
+
+// ——— FAQ & menu ———
+
+async function showFaqs() {
+    bot("Loading FAQs…", { typing: true });
+    try {
+        const res = await fetch(`${API_URL}/faq`);
+        const faqs = await res.json();
+        removeTypingBubble();
+        if (!faqs.length) {
+            bot("No FAQs in sheet yet.");
+            return;
+        }
+        let html = "<b>FAQs</b><br><br>";
+        faqs.forEach((f, i) => {
+            html += `<b>${i + 1}. ${f.Question}</b><br>${f.Answer}<br><br>`;
+        });
+        bot(html);
+    } catch (e) {
+        removeTypingBubble();
+        bot("Could not load FAQ from Google Sheet.");
+    }
+}
+
+function showTerms() {
+    bot(`
+    <b>Autoveer — terms</b><br>
+    Authorised dealer: Nissan, Bajaj, Ashok Leyland, Massey Ferguson.<br>
+    Workshop charges as per job card approval. Pay only official Autoveer accounts.<br>
+    📞 ${AUTOVEER_PHONE} | autoveer.com`);
+}
+
+function showMainMenu() {
+    bot(`
+    <div class="welcome-card">
+      <h3>How can we help?</h3>
+      <p>Use the buttons below or ask anything about vehicles &amp; service.</p>
+    </div>
+    <label class="menu-select-label">Quick jump</label>
+    <select class="menu-select" id="menuJump" onchange="onMenuJump(this)">
+      <option value="">Choose an action…</option>
+      <option value="track">Track service status</option>
+      <option value="testdrive">Book test drive</option>
+      <option value="workshop">Workshop proforma (PDF)</option>
+      <option value="complaint">Register complaint</option>
+      <option value="faq">FAQs</option>
+      <option value="terms">Terms</option>
+    </select>`);
+}
+
+function onMenuJump(sel) {
+    const map = {
+        track: "Track Service",
+        testdrive: "Book Test Drive",
+        workshop: "Workshop Service",
+        complaint: "Raise Complaint",
+        faq: "FAQs",
+        terms: "Terms",
+    };
+    const v = sel.value;
+    if (!v) return;
+    sel.value = "";
+    handleAction(map[v]);
+}
+
+async function handleAction(action) {
+    user(action);
+    await logChat(action);
+
+    switch (action) {
+        case "Track Service":
+            showTrackForm();
+            break;
+        case "Book Test Drive":
+            showTestDriveForm();
+            break;
+        case "Workshop Service":
+            showWorkshopForm();
+            break;
+        case "Raise Complaint":
+            showComplaintForm();
+            break;
+        case "FAQs":
+            await showFaqs();
+            break;
+        case "Terms":
+            showTerms();
+            break;
+        default:
+            break;
+    }
+}
+
+function selectOption(action) {
+    if (
+        conversationState === "awaiting_mobile" &&
+        !["FAQs", "Terms", "Terms & Conditions", "Workshop Service"].includes(action)
+    ) {
+        bot("Please enter your 10-digit mobile number first.");
+        return;
+    }
+    const labels = {
+        "Terms & Conditions": "Terms",
+        "Raise Complaint": "Raise Complaint",
+        "Raise a Complaint": "Raise Complaint",
+    };
+    handleAction(labels[action] || action);
+}
+
+// ——— Chat input ———
+
 async function sendMessage() {
     const input = document.getElementById("userInput");
     const text = input.value.trim();
     if (!text) return;
-    updateChatUI(text, "user");
-if (conversationState === "awaiting_mobile") {
-
-    userMobile = text;
-
-    const mobileRegex = /^[6-9]\d{9}$/;
-
-    if (!mobileRegex.test(text)) {
-
-        updateChatUI(
-            "Please enter a valid 10-digit mobile number.",
-            "bot"
-        );
-
-        input.value = "";
-        return;
-    }
-
-    await saveToBackend({
-        mobile: userMobile,
-        query: "Mobile Verified"
-    });
-
-    if (isTrackOrderFlow) {
-
-        await fetchLatestOrder();
-
-        isTrackOrderFlow = false;
-        hasViewedOrder = true;
-
-    } else {
-
-        updateChatUI(
-            "✅ Mobile number verified successfully.<br><br>How can we help you today?",
-            "bot"
-        );
-
-    }
-
-    conversationState = "idle";
-    input.value = "";
-    return;
-}
-
-if (conversationState === "awaiting_mobile_for_reorder") {
-    const mobileRegex = /^[6-9]\d{9}$/;
-    if (!mobileRegex.test(text)) {
-        updateChatUI("Please enter a valid 10-digit mobile number.", "bot");
-        input.value = "";
-        return;
-    }
-    userMobile = text;
-    await saveToBackend({
-        mobile: userMobile,
-        query: "Mobile Entered for Reorder"
-    });
-    hasUsedPreviousMobileForReorder = true;
-    await fetchOrdersForReorder(userMobile);
-    input.value = "";
-    return;
-}
-
-await saveToBackend({
-    mobile: userMobile,
-    query: text
-});
-
-const msg = text.toLowerCase().trim();
-
-if (["hi", "hello", "hey"].includes(msg)) {
-
-    updateChatUI(
-        "Hello 👋 How can I help you today?",
-        "bot"
-    );
-
-    input.value = "";
-    return;
-}
-
-if (["thanks","thank you","thank u","thx"].includes(msg)) {
-
-    updateChatUI(
-        "You're welcome 😊",
-        "bot"
-    );
-
-    input.value = "";
-    return;
-}
-
-if (["bye","goodbye"].includes(msg)) {
-
-    updateChatUI(
-        "Have a great day! 👋",
-        "bot"
-    );
-
-    input.value = "";
-    return;
-}
-
-switch(conversationState){
-
-            case "awaiting_ticket":
-
-            try {
-
-                const response = await fetch(
-                `${API_URL}/create-ticket`,
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                mobile: userMobile,
-                category: selectedTicketCategory,
-                issue: text
-            })
-        }
-    );
-
-    const data = await response.json();
-
-    updateChatUI(`
-        ✅ <b>Ticket created successfully!</b><br><br>
-
-        🎫 <b>Ticket ID:</b> ${data.ticket_id}<br><br>
-
-        📂 <b>Category:</b> ${selectedTicketCategory}<br><br>
-
-        📅 <b>Created On:</b> ${data.created_on}<br><br>
-
-        📞 Our support team will contact you shortly.<br><br>
-
-        <b>Please save your Ticket ID for future reference.</b>
-    `, "bot");
-
-} catch (e) {
-
-    updateChatUI(
-        "❌ Unable to create ticket.",
-        "bot"
-    );
-
-}
-    selectedTicketCategory = "";
-    isAnyOtherTicket = false;
-    conversationState = "idle";  
-    break;
-        case "awaiting_reorder_position":
-            const pos = parseInt(text.trim());
-            if (isNaN(pos) || pos < 1 || pos > availableOrdersToReorder.length) {
-                updateChatUI(`❌ Invalid selection. Please reply with a number between 1 and ${availableOrdersToReorder.length}.`, "bot");
-                break;
-            }
-            const selectedOrder = availableOrdersToReorder[pos - 1];
-            try {
-                const response = await fetch(`${API_URL}/create-reorder`, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        order_no: selectedOrder.order_no
-                    })
-                });
-                const data = await response.json();
-                updateChatUI(`✅ Re-order request submitted successfully for Order No: <b>${selectedOrder.order_no}</b>.`, "bot");
-            } catch (err) {
-                updateChatUI("❌ Unable to submit reorder request.", "bot");
-            }
-            conversationState = "idle";
-            availableOrdersToReorder = [];
-            break;
-
-default:
-    
-
-
-    // Loading Message
-    updateChatUI(
-    "🤖 Mediseller Assistant is typing...",
-    "bot"
-    );
-
-    try {
-
-        const response = await fetch(
-            `${API_URL}/chat-ai`,
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    message: text
-                })
-            }
-        );
-
-        const data = await response.json();
-
-        // Typing message remove karo
-        const messages =
-            document.querySelectorAll(".bot-message");
-
-        const lastMessage =
-            messages[messages.length - 1];
-
-        if (
-            lastMessage &&
-            lastMessage.innerText === "🤖 Mediseller Assistant is typing..."
-        ) {
-            lastMessage.remove();
-        }
-
-        updateChatUI(
-            data.reply,
-            "bot"
-        );
-
-    } catch (error) {
-
-        const messages =
-            document.querySelectorAll(".bot-message");
-
-        const lastMessage =
-            messages[messages.length - 1];
-
-        if (
-            lastMessage &&
-            lastMessage.innerText === "🤖 Mediseller Assistant is typing..."
-        ) {
-            lastMessage.remove();
-        }
-
-        updateChatUI(
-            "Sorry, AI Assistant is currently unavailable.",
-            "bot"
-        );
-
-    }
-    }
-
+    user(text);
     input.value = "";
 
-}
-
-// ===============================
-// OPTION BUTTONS
-// ===============================
-
-async function selectOption(option) {
-
-    if (conversationState === "awaiting_mobile" && option !== "FAQs" && option !== "Terms & Conditions") {
-
-        updateChatUI(
-            "Please enter your mobile number first.",
-            "bot"
-        );
-
-        return;
-    }
-
-    updateChatUI(option, "user");
-setTimeout(async () => {
-    await saveToBackend({
-    mobile: userMobile,
-    query: option
-});
-
-    switch (option) {
-
-case "Track My Order":
-
-    if (!userMobile) {
-        hasViewedOrder = false;
-
-        isTrackOrderFlow = true;
-        conversationState = "awaiting_mobile";
-
-        updateChatUI(
-            "📱 Please enter your mobile number.",
-            "bot"
-        );
-
-        break;
-    }
-
-    if (!hasViewedOrder) {
-
-        await fetchLatestOrder();
-        break;
-    }
-
-    hasViewedOrder = false;
-    isTrackOrderFlow = true;
-    userMobile = "";
-    conversationState = "awaiting_mobile";
-
-    updateChatUI(
-        "📱 Please enter your mobile number.",
-        "bot"
-    );
-
-    break;
-
-
-
-            case "Raise a Ticket":
-
-                updateChatUI(`
-                    <b>Please choose a category for your ticket.</b><br><br>
-
-                    <button class="ticket-btn"
-                    onclick="selectTicketCategory('Incomplete Order')">
-                    📦 Incomplete Order
-                    </button><br><br>
-
-                    <button class="ticket-btn"
-                    onclick="selectTicketCategory('Damaged Product')">
-                    📦 Damaged Product
-                    </button><br><br>
-
-                    <button class="ticket-btn"
-                    onclick="selectTicketCategory('Advance Paid but Order Not Received')">
-                    💳 Advance Paid but Order Not Received
-                    </button><br><br>
-
-                    <button class="ticket-btn"
-                    onclick="selectTicketCategory('Product Expiry')">
-                    📅 Product Expiry
-                    </button><br><br>
-
-                    <button class="ticket-btn"
-                    onclick="selectTicketCategory('Any Other')">
-                    ✍️ Any Other
-                    </button>
-                `, "bot");
-
-                break;
-
-            case "Product Reorder":
-                if (userMobile && !hasUsedPreviousMobileForReorder) {
-                    hasUsedPreviousMobileForReorder = true;
-                    await fetchOrdersForReorder(userMobile);
-                } else {
-                    userMobile = "";
-                    hasUsedPreviousMobileForReorder = false;
-                    conversationState = "awaiting_mobile_for_reorder";
-                    updateChatUI(
-                        "📱 Please enter your 10-digit mobile number:",
-                        "bot"
-                    );
-                }
-                break;
-
-            case "FAQs":
-
-    try {
-
-        updateChatUI("🔍 Loading FAQs...", "bot");
-
-        const response = await fetch(`${API_URL}/faq`);
-
-        const faqs = await response.json();
-
-        // Loading message remove
-        const messages = document.querySelectorAll(".bot-message");
-        const lastMessage = messages[messages.length - 1];
-
-        if (
-            lastMessage &&
-            lastMessage.innerText === "🔍 Loading FAQs..."
-        ) {
-            lastMessage.remove();
-        }
-
-        if (!faqs.length) {
-            updateChatUI("No FAQs available.", "bot");
-            break;
-        }
-
-        let html = "<b>Frequently Asked Questions</b><br><br>";
-
-        faqs.forEach((item, index) => {
-
-            html += `
-            <b>${index + 1}. ${item.Question}</b><br>
-            ${item.Answer}<br><br>
-            `;
-
-        });
-
-        updateChatUI(html, "bot");
-
-    } catch (err) {
-
-        updateChatUI(
-            "❌ Unable to load FAQs.",
-            "bot"
-        );
-
-        console.error(err);
-
-    }
-
-    
-
-                break;
-
-            case "Terms & Conditions":
-                updateChatUI(`
-                    <b>Terms & Conditions of Sale</b><br>
-                    <i>Effective: 1st January 2025</i><br><br>
-                    <div style="max-height: 250px; overflow-y: auto; padding: 12px; border: 1px solid #eeeeee; border-radius: 12px; font-size: 13px; text-align: left; background: #ffffff; line-height: 1.6; color: #444444; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);">
-                      <p style="margin-bottom: 12px;">1. <b>Acceptance:</b> These Terms form a legally binding agreement between Mediseller and the Customer. Placing an order via website, WhatsApp, IndiaMart, or any channel constitutes full and unconditional acceptance.</p>
-                      <p style="margin-bottom: 12px;">2. <b>Eligibility & Prescription:</b> Services are available only to individuals 18+ years of age. A valid prescription from a licensed physician is mandatory for all Schedule H/H1/X drugs. Orders without a required prescription will be cancelled without refund.</p>
-                      <p style="margin-bottom: 12px;">3. <b>Product Authenticity:</b> All products are 100% genuine, sourced from GMP/ISO-certified manufacturers. Products are verified for batch number, expiry date, and packaging integrity before dispatch.</p>
-                      <p style="margin-bottom: 12px;">4. <b>Pricing & Payment:</b> All prices are in INR (domestic) or USD (international) and may change without notice. Full advance payment is required before dispatch. Mediseller will never request payment to personal or unofficial accounts.</p>
-                      <p style="margin-bottom: 12px;">5. <b>Order Confirmation & WhatsApp Orders:</b> An order is confirmed only upon receipt of Mediseller's written confirmation and payment verification. WhatsApp orders are valid only on Mediseller's official business number and are binding once confirmed.</p>
-                      <p style="margin-bottom: 12px;">6. <b>Shipping & Delivery:</b> Domestic delivery: 3–7 working days. International delivery: 7–30 working days via Aramex, DHL, FedEx, or EMS. Tracking details shared upon dispatch. Timelines are estimates, not guarantees.</p>
-                      <p style="margin-bottom: 12px;">7. <b>Delay Disclaimer:</b> Mediseller is not liable for delays caused by courier operations, customs clearance, natural disasters, public holidays, government restrictions, or any force majeure event. Customer care will assist in tracking.</p>
-                      <p style="margin-bottom: 12px;">8. <b>Customs & Import Responsibility:</b> International buyers are solely responsible for customs duties, import taxes, compliance with local import laws, and clearance of shipments at destination. Mediseller bears no liability for seizures or confiscation by customs authorities.</p>
-                      <p style="margin-bottom: 12px;">9. <b>Cancellation Policy:</b> Cancellations must be requested within 2 hours of order confirmation and before dispatch. No cancellation is accepted once an order is dispatched. International orders are non-cancellable once confirmed. Advance payments are non-refundable.</p>
-                      <p style="margin-bottom: 12px;">10. <b>Refund & Replacement — STRICT 24-HOUR RULE:</b> Complaints must be raised within 24 hours of delivery with an unboxing video and photographic evidence. No refund or replacement will be issued after 24 hours, for opened/used medicines, for delivery delays, or without video proof. Approved refunds processed within 7–14 working days.</p>
-                      <p style="margin-bottom: 12px;">11. <b>RTO (Return to Origin):</b> If a shipment is returned undelivered due to customer fault (wrong address, unavailability, refusal), re-shipping charges are fully borne by the customer. The ₹200 COD confirmation charge is non-refundable in all cases.</p>
-                      <p style="margin-bottom: 12px;">12. <b>AI-Generated / Manipulated Evidence — Strictly Prohibited:</b> Submitting AI-generated, digitally manipulated, edited, or fabricated images or videos as evidence of damage, missing items, or wrong products is a serious criminal offence. Mediseller uses digital forensic verification and reserves the right to file an FIR and initiate legal proceedings under the Information Technology Act, 2000 (Sections 43, 65, 66, 66C, 66D), Indian Penal Code (Sections 415, 420, 468, 471 — Fraud, Forgery & Cheating), and Consumer Protection Act, 2019. The customer shall be permanently blacklisted and liable for all legal costs and damages incurred by Mediseller.</p>
-                      <p style="margin-bottom: 12px;">13. <b>Fake Complaint & Fraud Protection:</b> False, fabricated, or unsubstantiated complaints will be rejected and may result in permanent blacklisting and legal action under IPC Sections 415, 417, 420 and the IT Act, 2000. Mediseller maintains full dispatch records, packing photos, and courier proofs.</p>
-                      <p style="margin-bottom: 12px;">14. <b>Third-Party Platform Complaints:</b> Complaints raised on IndiaMart, TradeIndia, or any third-party platform without first contacting Mediseller support are invalid. Allow 48 working hours for resolution before any escalation.</p>
-                      <p style="margin-bottom: 12px;">15. <b>Limitation of Liability:</b> Mediseller's liability is strictly limited to the order value. Mediseller is not liable for indirect losses, health consequences from product use, courier failures, or customs issues. Mediseller is not a medical advisor.</p>
-                      <p style="margin-bottom: 12px;">16. <b>Governing Law & Contact:</b> These Terms are governed by Indian law. Disputes subject to exclusive jurisdiction of courts in New Delhi, India. For support: support@mediseller.com | WhatsApp: +91-7065016950| Mon–Sat, 10 AM – 6:30 PM IST.</p>
-                    </div>
-                `, "bot");
-                break;
-
-            default:
-
-                updateChatUI(
-                    option,
-                    "bot"
-                );
-        }
-
-    }, 500);
-
-}
-
-// ===============================
-// TICKET CATEGORY
-// ===============================
-
-async function selectTicketCategory(category) {
-
-    selectedTicketCategory = category;
-
-    // Any Other
-    if (category === "Any Other") {
-
-        isAnyOtherTicket = true;
-
-        conversationState = "awaiting_ticket";
-
-        updateChatUI(
-            "✍️ Please describe your issue.",
-            "bot"
-        );
-
-        return;
-    }
-
-    // Disable all ticket buttons after one click
-    document
-    .querySelectorAll(".ticket-btn")
-    .forEach(btn => btn.disabled = true);
-
-    // If it requires photo upload (Incomplete Order, Damaged Product, Product Expiry)
-    if (category === "Incomplete Order" || category === "Damaged Product" || category === "Product Expiry") {
-        uploadedPhotoUrl = ""; // Reset
-        updateChatUI(`
-<b>Please upload a photo for your ${category} ticket:</b><br><br>
-
-<div class="upload-box"
-style="
-margin-top:10px;
-padding:15px;
-border:2px dashed #d10000;
-border-radius:12px;
-background:#fff8f8;
-text-align:center;
-">
-
-<input
-type="file"
-id="ticketPhotoInput"
-accept="image/*"
-style="display:none;"
-onchange="uploadTicketPhoto(this)"
->
-
-<input
-type="file"
-id="ticketCameraInput"
-accept="image/*"
-capture="environment"
-style="display:none;"
-onchange="uploadTicketPhoto(this)"
->
-
-<div
-style="
-display:flex;
-justify-content:center;
-gap:10px;
-flex-wrap:wrap;
-">
-
-<label
-for="ticketPhotoInput"
-class="upload-label"
-style="
-padding:10px 18px;
-background:#d10000;
-color:#fff;
-border-radius:20px;
-cursor:pointer;
-font-weight:bold;
-">
-🖼️ Select Photo
-</label>
-
-<label
-for="ticketCameraInput"
-class="upload-label"
-style="
-padding:10px 18px;
-background:#198754;
-color:#fff;
-border-radius:20px;
-cursor:pointer;
-font-weight:bold;
-">
-📷 Take Photo
-</label>
-
-</div>
-
-<div
-id="previewContainer"
-style="
-display:none;
-margin-top:15px;
-">
-
-<img
-id="previewImage"
-style="
-max-width:220px;
-border-radius:10px;
-border:1px solid #ddd;
-">
-
-<br><br>
-
-<button
-class="ticket-btn"
-onclick="removePhoto()">
-❌ Remove Photo
-</button>
-
-</div>
-
-<div
-id="photoStatus"
-style="
-margin-top:12px;
-font-size:13px;
-font-weight:600;
-color:#666;
-">
-
-No file selected
-
-</div>
-
-<br>
-
-<button
-
-id="submitTicketBtn"
-
-class="ticket-btn"
-
-style="
-width:100%;
-padding:12px;
-border:none;
-border-radius:10px;
-background:linear-gradient(180deg,#ff3b3b,#d10000);
-color:white;
-font-weight:bold;
-cursor:pointer;
-"
-
-disabled
-
-onclick="submitTicketWithPhoto()">
-
-Submit Ticket
-
-</button>
-
-</div>
-`, "bot");
-        return;
-    }
-
-    isAnyOtherTicket = false;
-
-    try {
-
-        const response = await fetch(
-            `${API_URL}/create-ticket`,
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    mobile: userMobile,
-                    category: category,
-                    issue: ""
-                })
-            }
-        );
-
-        const data = await response.json();
-
-        if (data.status === "success") {
-
-    let successMsg = `
-    ✅ <b>Ticket created successfully!</b><br><br>
-
-    🎫 <b>Ticket ID:</b> ${data.ticket_id}<br><br>
-
-    📂 <b>Category:</b> ${category}<br><br>
-
-    📅 <b>Created On:</b> ${data.created_on}<br><br>
-    `;
-            
-            if (category === "Advance Paid but Order Not Received") {
-                successMsg += `<div style="background: #fff8f8; border-left: 4px solid #d10000; padding: 12px; margin: 12px 0; border-radius: 8px; font-size: 13px; color: #444444; line-height: 1.5; text-align: left; box-shadow: 0 2px 6px rgba(0,0,0,0.02);">
-                    <b>Please note:</b> If your order was placed recently, it may take up to 48 hours for the tracking ID to be generated, provided there are no issues with your order such as address errors, product price discrepancies, or stock unavailability. We request you to kindly wait during this time.
-                </div><br>`;
-            }
-            
-            successMsg += `Our support team will contact you shortly.`;
-
-            updateChatUI(successMsg, "bot");
-
-        } else {
-
-            updateChatUI(
-                "❌ Unable to create ticket.",
-                "bot"
-            );
-
-        }
-
-    } catch (e) {
-
-        updateChatUI(
-            "❌ Unable to create ticket.",
-            "bot"
-        );
-
-    }
-
-    selectedTicketCategory = "";
-    conversationState = "idle";
-
-}
-
-async function uploadTicketPhoto(input) {
-const file = input.files[0];
-
-if (!file) return;
-
-const reader = new FileReader();
-
-reader.onload = function (e) {
-
-    document.getElementById("previewContainer").style.display = "block";
-
-    document.getElementById("previewImage").src = e.target.result;
-
-};
-
-reader.readAsDataURL(file);
-   
-
-    const statusEl = document.getElementById("photoStatus");
-    const submitBtn = document.getElementById("submitTicketBtn");
-    
-    statusEl.textContent = "Uploading...";
-    statusEl.style.color = "#666666";
-    submitBtn.disabled = true;
-
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-        const response = await fetch(`${API_URL}/upload-photo`, {
-            method: "POST",
-            body: formData
-        });
-        const data = await response.json();
-        if (data.status === "success") {
-            uploadedPhotoUrl = data.url;
-            statusEl.textContent = "✅ Uploaded successfully!";
-            statusEl.style.color = "#2ecc71";
-            submitBtn.disabled = false;
-        } else {
-            statusEl.textContent = "❌ Upload failed: " + (data.message || "Unknown error");
-            statusEl.style.color = "#d10000";
-            submitBtn.disabled = true;
-        }
-    } catch (err) {
-        console.error(err);
-        statusEl.textContent = "❌ Upload failed.";
-        statusEl.style.color = "#d10000";
-        submitBtn.disabled = true;
-    }
-}
-function removePhoto(){
-
-uploadedPhotoUrl="";
-
-document.getElementById("ticketPhotoInput").value="";
-
-document.getElementById("ticketCameraInput").value="";
-
-document.getElementById("previewContainer").style.display="none";
-document.getElementById("previewImage").src = "";
-
-document.getElementById("photoStatus").innerHTML="No file selected";
-
-document.getElementById("submitTicketBtn").disabled=true;
-
-}
-async function submitTicketWithPhoto() {
-    if (!uploadedPhotoUrl) {
-        alert("Please upload a photo first.");
-        return;
-    }
-    
-    const submitBtn = document.getElementById("submitTicketBtn");
-    if (submitBtn) {
-        submitBtn.disabled = true;
-        submitBtn.textContent = "Submitting...";
-    }
-
-    try {
-        const response = await fetch(
-            `${API_URL}/create-ticket`,
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    mobile: userMobile,
-                    category: selectedTicketCategory,
-                    issue:"", 
-                    photo_url: uploadedPhotoUrl}
-                )
-            }
-        );
-
-        const data = await response.json();
-
-        if (data.status === "success") {
-
-            updateChatUI(`
-            ✅ <b>Ticket created successfully!</b><br><br>
-            🎫 <b>Ticket ID:</b> ${data.ticket_id}<br><br>
-            📂 <b>Category:</b> ${selectedTicketCategory}<br><br>
-            📷 <b>Photo:</b>
-            <a href="${data.photo_url}" target="_blank"
-            style="color:#d10000;text-decoration:underline;">
-            View Uploaded Photo
-            </a><br><br>
-            📅 <b>Created On:</b> ${data.created_on}<br><br>
-            📞 Our support team will contact you shortly.<br><br>
-        <b>Please save your Ticket ID for future reference.</b>
-    `, "bot");
-
-    } else {
-            updateChatUI(
-                "❌ Unable to create ticket.",
-                "bot"
-            );
-        }
-    } catch (e) {
-        updateChatUI(
-            "❌ Unable to create ticket.",
-            "bot"
-        );
-    }
-
-    uploadedPhotoUrl = "";
-    selectedTicketCategory = "";
-    conversationState = "idle";
-}
-
-async function fetchOrdersForReorder(mobile) {
-    try {
-        updateChatUI("🔍 Searching for your orders...", "bot");
-        
-        const response = await fetch(`${API_URL}/get-orders`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                mobile: mobile
-            })
-        });
-
-        const data = await response.json();
-        
-        // Remove search loading message
-        const messages = document.querySelectorAll(".bot-message");
-        const lastMessage = messages[messages.length - 1];
-        if (lastMessage && lastMessage.innerText === "🔍 Searching for your orders...") {
-            lastMessage.remove();
-        }
-
-        if (!data.found || !data.orders || data.orders.length === 0) {
-            updateChatUI("❌ No orders found for this mobile number.", "bot");
-            conversationState = "idle";
+    if (conversationState === "awaiting_mobile") {
+        if (!/^[6-9]\d{9}$/.test(text)) {
+            bot("Enter a valid 10-digit Indian mobile number.");
             return;
         }
-
-        availableOrdersToReorder = data.orders;
-        
-        let msgHtml = `📦 <b>Your Recent Orders:</b><br><br>`;
-        availableOrdersToReorder.forEach((order, index) => {
-            const statusCapitalized = (order.dispatch_status || "Pending")
-                .split(" ")
-                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-                .join(" ");
-            
-            msgHtml += `<b>[${index + 1}] Order ID:</b> ${order.order_no}<br>` +
-                       `🚚 <b>Courier:</b> ${order.logistic_name || "N/A"}<br>` +
-                       `📦 <b>Status:</b> ${statusCapitalized}<br><br>`;
-        });
-        
-        msgHtml += `Please reply with the number (e.g., <b>1</b> or <b>2</b>) of the order you want to reorder.`;
-        
-        updateChatUI(msgHtml, "bot");
-        conversationState = "awaiting_reorder_position";
-
-    } catch (err) {
-        console.error(err);
-        const messages = document.querySelectorAll(".bot-message");
-        const lastMessage = messages[messages.length - 1];
-        if (lastMessage && lastMessage.innerText === "🔍 Searching for your orders...") {
-            lastMessage.remove();
-        }
-        updateChatUI("❌ Unable to fetch order details.", "bot");
+        userMobile = text;
         conversationState = "idle";
+        await logChat("Mobile verified");
+        bot(`Thanks! Mobile <b>${userMobile}</b> saved for this session.`);
+        showMainMenu();
+        return;
     }
-}
 
-async function fetchLatestOrder() {
+    await logChat(text);
+    const low = text.toLowerCase();
+    if (["hi", "hello", "hey", "namaste"].includes(low)) {
+        showMainMenu();
+        return;
+    }
 
+    bot(TYPING_TEXT, { typing: true });
     try {
-
-        updateChatUI(
-            "🔍 Fetching your latest order...",
-            "bot"
-        );
-
-        const response = await fetch(
-            `${API_URL}/track-order`,
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    mobile: userMobile
-                })
-            }
-        );
-
-        const data = await response.json();
-        const messages =
-        document.querySelectorAll(".bot-message");
-
-        const lastMessage =
-        messages[messages.length - 1];
-
-        if (
-        lastMessage &&
-        lastMessage.innerText === "🔍 Fetching your latest order..."
-        ){
-        lastMessage.remove();
-        }
-
-        if (!data.found) {
-
-            hasViewedOrder = true;
-            conversationState = "idle";
-            updateChatUI(
-                "❌ No order found for this mobile number.",
-                "bot"
-            );
-
-            return;
-
-        }
-
-        updateChatUI(
-
-`📦 <b>Order Details</b><br><br>
-
-🆔 <b>Order ID:</b><br>
-${data.order_no}<br><br>
-
-🚚 <b>Courier:</b><br>
-${data.logistic_name || "Not Available"}<br><br>
-
-📦 <b>Status:</b><br>
-${
-(data.dispatch_status || "Not Available")
-    .split(" ")
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ")
-}<br><br>
-
-🔗 <b>Track Parcel:</b><br>
-
-${
-data.tracking_url
-?
-`<a href="${data.tracking_url}"
-target="_blank"
-style="
-color:#d10000;
-text-decoration:underline;
-word-break:break-all;
-">
-${data.tracking_url}
-</a>`
-:
-"Not Available"
-}
-
-<br><br>
-
-📌 <b>Delivery Type:</b><br>
-${data.delivery_type||"Not Available"}<br><br>
-
-✅ <b>Order Confirmation:</b><br>
-${data.order_confirmation||"Pending"}
-
-`,
-"bot"
-        );
-    hasViewedOrder = true;
-    conversationState = "idle";
-
+        const res = await fetch(`${API_URL}/chat-ai`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: text }),
+        });
+        const data = await res.json();
+        removeTypingBubble();
+        bot(data.reply);
+    } catch (e) {
+        removeTypingBubble();
+        bot("AI unavailable. Call " + AUTOVEER_PHONE);
     }
-
-catch(e){
-
-    const messages =
-        document.querySelectorAll(".bot-message");
-
-    const lastMessage =
-        messages[messages.length - 1];
-
-    if(
-        lastMessage &&
-        lastMessage.innerText === "🔍 Fetching your latest order..."
-    ){
-        lastMessage.remove();
-    }
-
-    updateChatUI(
-        "❌ Unable to fetch order details.",
-        "bot"
-    );
-
 }
-
-}
-
-// ===============================
-// PAGE LOAD
-// ===============================
 
 document.addEventListener("DOMContentLoaded", () => {
+    bot(`
+    <div class="welcome-card">
+      <h3>Autoveer Drive Assist 🚗</h3>
+      <p>Nissan · Bajaj · Ashok Leyland · Massey Ferguson<br>Haryana authorised dealer — sales, service &amp; workshop.</p>
+      <p class="welcome-cta"><b>Enter your 10-digit mobile</b> to start.</p>
+    </div>`);
 
-    updateChatUI(
-        "Welcome to Mediseller Support 👋\n\nPlease enter your 10-digit mobile number to continue.",
-        "bot"
-    );
-
-    const input = document.getElementById("userInput");
-
-    input.addEventListener("keydown", function (e) {
-
+    document.getElementById("userInput").addEventListener("keydown", (e) => {
         if (e.key === "Enter") {
             e.preventDefault();
             sendMessage();
-
         }
-
     });
-
 });
-

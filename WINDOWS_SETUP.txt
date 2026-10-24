@@ -1,0 +1,59 @@
+================================================================================
+  AUTOVEER CHATBOT — WINDOWS PAR CHALANE KE LIYE
+================================================================================
+
+ZAROORI SOFTWARE
+----------------
+1. Python 3.10 ya usse upar
+   Download: https://www.python.org/downloads/windows/
+   Install karte waqt tick karein: "Add python.exe to PATH"
+
+2. (Optional) Google Gemini API key — AI chat ke liye
+   backend\.env file mein likhein:
+   GEMINI_API_KEY=apna_key
+
+3. (Optional) Google Sheets — backend\Data\credentials.json
+   Bina iske bhi FAQ aur Workshop data local JSON mein save ho sakta hai.
+
+
+TEZ START (RECOMMENDED)
+-----------------------
+1. Folder kholo: AutoVeer\Chatbot-V2
+2. Pehli baar: install-windows.bat par double-click
+3. Har baar chatbot chalane ke liye: start-autoveer-chatbot.bat par double-click
+4. Browser khulega: http://127.0.0.1:5500
+
+Do alag CMD windows khulengi (Backend + Frontend). Band karne ke liye dono windows close karein.
+
+
+MANUAL RUN (agar batch kaam na kare)
+-----------------------------------
+CMD open karein, project folder mein jayein:
+
+  cd path\to\AutoVeer\Chatbot-V2
+  install-windows.bat
+
+Backend (nayi CMD window):
+  cd backend
+  ..\venv\Scripts\activate
+  python -m uvicorn app:app --reload --host 127.0.0.1 --port 8000
+
+Frontend (ek aur CMD window):
+  cd AutoVeer\Chatbot-V2
+  venv\Scripts\activate
+  python -m http.server 5500 --bind 127.0.0.1
+
+Browser: http://127.0.0.1:5500
+
+
+NOTE
+----
+- Ye project Windows ke liye hai (uvicorn). Mac/Linux par bhi chal sakta hai, lekin
+  Windows users ke liye .bat files use karein.
+- index.html ko seedha double-click se mat kholo — backend connect nahi hoga.
+  Hamesha start-autoveer-chatbot.bat use karein.
+- Firewall agar pooche to Python ko allow karein (local network).
+
+Helpline Autoveer: 9812000912 | https://autoveer.com/
+
+================================================================================

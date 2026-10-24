@@ -1,0 +1,58 @@
+================================================================================
+AUTOVEER CHATBOT — GOOGLE SHEET (DATABASE) — NAYA SETUP
+================================================================================
+
+STEP 1: Blank Google Sheet banayein.
+
+STEP 2: Service account JSON (credentials.json) ki email ko Sheet par Editor access dein.
+
+STEP 3: backend\.env
+  GOOGLE_SHEET_ID=spreadsheet_id_from_url
+  GEMINI_API_KEY=your_key
+
+STEP 4: Neeche 6 worksheets (tabs) banayein — NAMES EXACT (underscore wale).
+
+STEP 5: Har tab ki ROW 1 mein ye headers copy-paste karein (ek row, columns left to right).
+
+================================================================================
+TAB: Chat_Log
+================================================================================
+Timestamp | Session_ID | Mobile | Message | Source
+
+================================================================================
+TAB: Service_Status   (Track Service — mobile ya job card se)
+================================================================================
+Timestamp | Mobile | Customer_Name | Job_Card_No | Vehicle_Brand | Vehicle_Model | Registration_No | Service_Status | Workshop_Location | Expected_Date | Status_Notes | Service_Type
+
+Demo row:
+2026-01-01 10:00:00 | 9812000912 | Rahul Kumar | JC2026001 | Nissan | Magnite | HR26AB1234 | In Workshop | Rohtak | 2026-01-05 | Waiting for parts | Paid Service
+
+================================================================================
+TAB: Workshop   (PDF proforma — chatbot form se save)
+================================================================================
+Timestamp | Service_Date | Workshop_Location | Brand_Vehicle_Type | Registration_No | Customer_Name | Customer_Mobile | Job_Card_No | Service_Type | Vehicle_Washing | Repairing | Repair_Details | Labour_Amount | Parts_Amount | AMC_Amount | Total_Amount | Remarks | Source
+
+Workshop_Location + Brand (PDF):
+  Karnal → Bajaj 2 Wheeler
+  Kurukshetra, Rohtak, Bhiwani → Bajaj 3 Wheeler
+  Rohtak, Bahadurgarh → Ashok Leyland Commercial Vehicle
+
+Service_Type: Free Service | First Paid Service | Paid Service | AMC
+Vehicle_Washing / Repairing: Yes | No
+
+================================================================================
+TAB: Test_Drive
+================================================================================
+Timestamp | Booking_ID | Customer_Name | Mobile | Vehicle_Brand | Vehicle_Model | Preferred_Branch | Preferred_Date | Consent_Contact | Notes | Source
+
+================================================================================
+TAB: Tickets
+================================================================================
+Timestamp | Mobile | Ticket_ID | Category | Description | Urgent | Photo_URL | Status | Source
+
+================================================================================
+TAB: FAQ
+================================================================================
+Question | Answer
+
+================================================================================

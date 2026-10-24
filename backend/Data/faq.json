@@ -1,7 +1,42 @@
-{
-  "shipping": "Delivery takes 7-10 business days.",
-  "payment": "We accept UPI, Bank Transfer and Credit Cards.",
-  "tracking": "Please enter your Order Number to track your order.",
-  "refund": "Refunds are processed within 5-7 working days.",
-  "contact": "You can contact Mediseller support for assistance."
-}
+[
+  {
+    "Question": "What is Autoveer Pvt Ltd?",
+    "Answer": "Autoveer Pvt Ltd is an authorised automobile dealer in Haryana for Nissan cars, Bajaj two-wheelers, Ashok Leyland commercial vehicles, and Massey Ferguson tractors — with showrooms and service centres across Rohtak, Karnal, Bhiwani, Kurukshetra, Ladwa, Bahadurgarh, Jhajjar, and Charkhi Dadri. Over 24 years of trusted service."
+  },
+  {
+    "Question": "Which brands do you sell?",
+    "Answer": "Nissan cars (e.g. Magnite), Bajaj bikes (e.g. Platina), Ashok Leyland commercial vehicles, and Massey Ferguson tractors — all with genuine parts, authorised service, and finance support."
+  },
+  {
+    "Question": "Where are your showrooms and service centres?",
+    "Answer": "Rohtak, Karnal, Bhiwani, Kurukshetra, Ladwa, Bahadurgarh, Jhajjar, and Charkhi Dadri (Haryana). Head office: Plot No.12, Choudhary Tractor, Vsham Lal Market, Teh and Distt Rohtak, Haryana 124001."
+  },
+  {
+    "Question": "How can I book a test drive?",
+    "Answer": "Use the <b>Book Test Drive</b> option in this chat or call <b>9812000912</b>. Share your name, mobile, preferred Nissan/Bajaj model, and nearest Autoveer branch."
+  },
+  {
+    "Question": "Do you offer finance and insurance?",
+    "Answer": "Yes. Autoveer offers easy finance options, low down payment plans, and insurance support on cars, bikes, CVs, and tractors at participating branches."
+  },
+  {
+    "Question": "Where are workshop services available?",
+    "Answer": "Bajaj 2-wheeler: Karnal. Bajaj 3-wheeler: Kurukshetra, Rohtak, Bhiwani. Ashok Leyland CV: Rohtak and Bahadurgarh. Use <b>Workshop Service</b> in chat to log a service proforma."
+  },
+  {
+    "Question": "What service types are recorded at workshops?",
+    "Answer": "Free Service, First Paid Service, Paid Service, and AMC. Washing and repair jobs are recorded separately with labour, parts, and AMC amounts."
+  },
+  {
+    "Question": "How do I get genuine spare parts?",
+    "Answer": "100% genuine spare parts and factory-approved accessories are available at authorised Autoveer service centres in Kurukshetra, Ladwa, Bahadurgarh, and other locations."
+  },
+  {
+    "Question": "How can I contact Autoveer?",
+    "Answer": "Phone: <b>9812000912</b> | Website: <a href='https://autoveer.com/' target='_blank'>autoveer.com</a> | Visit your nearest branch in Haryana."
+  },
+  {
+    "Question": "How do I track my vehicle service status?",
+    "Answer": "Enter your registered mobile number using <b>Track Service</b>. For urgent help, call 9812000912 with your job card number."
+  }
+]

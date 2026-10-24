@@ -1,4 +1,7 @@
+venv/
 backend/Data/credentials.json
+backend/Data/workshop_records.json
+backend/.env
 mediseller-chatbot-569329a0d9b6.json
 *.xlsx
 *.csv

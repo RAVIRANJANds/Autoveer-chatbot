@@ -1,547 +1,199 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from datetime import datetime
+import os
+import shutil
+
+import google.generativeai as genai
+from dotenv import load_dotenv
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-import os
-import shutil
-import gspread
-from google.oauth2.service_account import Credentials
-from datetime import datetime
-import google.generativeai as genai
-from fastapi import Request
-from dotenv import load_dotenv
 
-load_dotenv()
-
-def normalize_phone(phone_str):
-    s = str(phone_str).strip()
-    if s.endswith(".0"):
-        s = s[:-2]
-    s = "".join(c for c in s if c.isdigit())
-    if len(s) >= 10:
-        return s[-10:]
-    return s
-
-# ==========================
-# REQUEST MODELS
-# ==========================
-
-class SaveDataRequest(BaseModel):
-    session_id: str
-    mobile: str = ""
-    query: str = ""
-
-class OrderRequest(BaseModel):
-    mobile: str
-
-class TicketRequest(BaseModel):
-    mobile: str
-    category: str
-    issue: str = ""
-    photo_url: str = ""
-
-class VerifyOrderRequest(BaseModel):
-    order_no: str
-
-class ReorderRequest(BaseModel):
-    order_no: str
-
-class ChatRequest(BaseModel):
-    message: str
-# ==================================
-# FASTAPI APP
-# ==================================
-
-app = FastAPI(
-    title="Mediseller Chatbot API",
-    version="1.0"
+from sheets_db import (
+    init_sheets,
+    upsert_chat,
+    find_service_by_mobile,
+    find_service_by_job_card,
+    service_row_to_api,
+    list_faq,
+    save_workshop,
+    save_test_drive,
+    save_ticket,
+    normalize_phone,
 )
 
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+UPLOAD_DIR = os.path.join(BASE_DIR, "static", "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+app = FastAPI(title="Autoveer Chatbot API", version="3.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],      # Production me domain specify karna
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-# ==================================
-# GOOGLE SHEET CONFIG
-# ==================================
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-UPLOAD_DIR = os.path.join(BASE_DIR, "static", "uploads")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 
-SHEET_ID = "1UyvjshQcX7GR_IWao82dGTZ0IaGfktQMoFB0XmVIPIE"
+init_sheets()
+
+
+class ChatLogRequest(BaseModel):
+    session_id: str
+    mobile: str = ""
+    message: str
+
+
+class TrackServiceRequest(BaseModel):
+    mobile: str = ""
+    job_card_no: str = ""
+
+
+class WorkshopRequest(BaseModel):
+    service_date: str
+    workshop_location: str
+    brand_vehicle_type: str
+    registration_no: str
+    customer_name: str
+    customer_mobile: str
+    job_card_no: str = ""
+    service_type: str
+    vehicle_washing: str
+    repairing: str
+    repair_details: str = ""
+    labour_amount: float = 0
+    parts_amount: float = 0
+    amc_amount: float = 0
+    remarks: str = ""
+
+
+class TestDriveRequest(BaseModel):
+    customer_name: str
+    customer_mobile: str
+    vehicle_brand: str
+    vehicle_model: str
+    preferred_branch: str
+    preferred_date: str = ""
+    consent_contact: str = "Yes"
+    notes: str = ""
+
+
+class TicketRequest(BaseModel):
+    mobile: str
+    category: str
+    description: str
+    urgent: str = "No"
+    photo_url: str = ""
+
+
+class ChatAIRequest(BaseModel):
+    message: str
+
+
+@app.get("/")
+def health():
+    from sheets_db import spreadsheet
+
+    return {
+        "status": "ok",
+        "app": "Autoveer Chatbot",
+        "database": "google_sheets",
+        "sheets_connected": spreadsheet is not None,
+    }
+
+
+@app.post("/chat-log")
+def chat_log(data: ChatLogRequest):
+    upsert_chat(data.session_id, data.mobile, data.message)
+    return {"status": "saved"}
+
+
+@app.post("/track-service")
+def track_service(data: TrackServiceRequest):
+    row = None
+    if data.job_card_no.strip():
+        row = find_service_by_job_card(data.job_card_no)
+    elif data.mobile.strip():
+        row = find_service_by_mobile(data.mobile)
+    if not row:
+        return {"found": False}
+    return service_row_to_api(row)
 
-if os.path.exists("/etc/secrets/credentials.json"):
-    CREDS_FILE = "/etc/secrets/credentials.json"
-else:
-    CREDS_FILE = os.path.join(
-        BASE_DIR,
-        "Data",
-        "credentials.json"
-    )
 
-SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
-]
-
-try:
-
-    creds = Credentials.from_service_account_file(
-        CREDS_FILE,
-        scopes=SCOPES
-    )
-
-    client = gspread.authorize(creds)
-
-    spreadsheet = client.open("Testing dom data")
-
-    print("\n========== CONNECTED ==========")
-    print("Spreadsheet:", spreadsheet.title)
-
-    print("\nAvailable Sheets:")
-
-    for ws in spreadsheet.worksheets():
-        print("-", ws.title)
-
-    print("===============================\n")
-
-except Exception as e:
-
-    print("\nGOOGLE SHEET CONNECTION ERROR\n")
-    print(e)
-    raise e
-
-
-def get_sheet(sheet_name):
-    return spreadsheet.worksheet(sheet_name)
-
- #==================================
-# SAVE CHAT DATA
-# ==================================
-
-@app.post("/save-data")
-async def save_data(data: SaveDataRequest):
-
-    try:
-
-        sheet = get_sheet("Bot event")
-
-        records = sheet.get_all_values()
-
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        # Skip Header Row
-        for i in range(1, len(records)):
-
-            if len(records[i]) > 1 and str(records[i][1]).strip() == str(data.session_id).strip():
-
-                old_chat = ""
-
-                if len(records[i]) >= 4:
-                    old_chat = records[i][3]
-
-                new_chat = old_chat.strip()
-
-                if new_chat:
-                    new_chat += "\n" + data.query
-                else:
-                    new_chat = data.query
-
-                sheet.update_cell(i + 1, 1, timestamp)
-                sheet.update_cell(i + 1, 4, new_chat)
-
-                return {
-                    "status": "updated"
-                }
-
-        # New Session
-        sheet.append_row([
-            timestamp,
-            data.session_id,
-            data.mobile,
-            data.query
-        ])
-
-        return {
-            "status": "created"
-        }
-
-    except Exception as e:
-
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
-    
-
-
-@app.post("/track-order")
-async def track_order(data: OrderRequest):
-
-    try:
-
-        mobile = str(data.mobile).strip().upper()
-        user_mobile_norm = normalize_phone(mobile)
-
-        print("\n=================================")
-        print("User Mobile :", mobile)
-
-        sheet = get_sheet("Master sheet")
-        records = sheet.get_all_records()
-
-        print("Headers :", records[0].keys())
-        print("First Row :", records[0])
-
-        latest_order = None
-
-        for row in records:
-
-            current_mobile = normalize_phone(row.get("Mobile", ""))
-
-            print("---------------------------------")
-            print("Sheet Mobile :", current_mobile)
-            print("User Mobile  :", user_mobile_norm)
-
-            if current_mobile == user_mobile_norm:
-
-                print("✅ MATCH FOUND")
-
-                latest_order = row
-
-        print("Latest Order :", latest_order)
-
-        if latest_order:
-
-            return {
-                "found": True,
-                "order_no": latest_order.get("Order No", ""),
-                "dispatch_status": latest_order.get("Dispatch Status", "").strip().lower(),
-                "tracking_number": latest_order.get("Tracking Number", ""),
-                "tracking_url": latest_order.get("Tracking Url", ""),
-                "logistic_name": latest_order.get("Logistic Name", ""),
-                "delivery_type": latest_order.get("Delivery Type", ""),
-                "order_confirmation": latest_order.get("Order Confirmation Status", ""),
-                "courier_type": latest_order.get("Order Type", "")
-            }
-
-        print("❌ NO MATCH FOUND")
-
-        return {
-            "found": False
-        }
-
-    except Exception as e:
-
-        print("ERROR :", e)
-
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
-
-@app.post("/get-orders")
-async def get_orders(data: OrderRequest):
-    try:
-        mobile = str(data.mobile).strip().upper()
-        user_mobile_norm = normalize_phone(mobile)
-        sheet = get_sheet("Master sheet")
-        records = sheet.get_all_records()
-        user_orders = []
-        for row in records:
-            current_mobile = normalize_phone(row.get("Mobile", ""))
-            if current_mobile == user_mobile_norm:
-                user_orders.append({
-                    "order_no": str(row.get("Order No", "")),
-                    "logistic_name": str(row.get("Logistic Name", "")),
-                    "dispatch_status": str(row.get("Dispatch Status", "")).strip(),
-                    "tracking_number": str(row.get("Tracking Number", "")),
-                    "tracking_url": str(row.get("Tracking Url", "")),
-                    "delivery_type": str(row.get("Delivery Type", "")),
-                    "order_confirmation": str(row.get("Order Confirmation Status", "")),
-                    "courier_type": str(row.get("Order Type", ""))
-                })
-        if user_orders:
-            user_orders.reverse()  # Latest first
-            return {
-                "found": True,
-                "orders": user_orders
-            }
-        return {
-            "found": False
-        }
-    except Exception as e:
-        print("ERROR :", e)
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
-@app.post("/create-ticket")
-async def create_ticket(data: TicketRequest):
-
-    try:
-
-        print("========== CREATE TICKET ==========")
-        print("Mobile :", data.mobile)
-
-        sheet = get_sheet("Ticket")
-        master_sheet = get_sheet("Master sheet")
-
-        records = master_sheet.get_all_records()
-
-        customer = None
-
-        # Find customer by Mobile Number
-        for row in records:
-            if normalize_phone(row.get("Mobile", "")) == normalize_phone(data.mobile):
-                customer = row
-                break
-
-        print("Customer :", customer)
-
-        if customer is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Customer not found in Master Sheet"
-            )
-
-        ticket_id = "TKT" + datetime.now().strftime("%Y%m%d%H%M%S")
-        created_on = datetime.now().strftime("%d %b %Y, %I:%M %p")
-
-        row_data = [
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),   # Timestamp
-            customer.get("Mobile", ""),                     # Mobile
-            ticket_id,                                      # Ticket ID
-            data.category,                                  # Category
-            data.issue,                                     # Issue
-            data.photo_url,                                 # Photo URL
-            "Open",                                         # Status
-            data.issue,                                     # Description
-            "Website",                                      # Source
-            customer.get("Order No", ""),                   # Remark
-            "Pending",                                      # Ticket Status
-            "",                                             # Next Followup
-            customer.get("Dispatch Status", "")             # Final Remark
-        ]
-
-        print("ROW DATA :", row_data)
-
-        sheet.append_row(
-            row_data,
-            value_input_option="USER_ENTERED"
-        )
-
-        next_row = len(sheet.get_all_values())
-        
-
-        # Convert Photo URL into clickable hyperlink
-        sheet.update(
-            f"F{next_row}",
-            [[f'=HYPERLINK("{data.photo_url}","View Photo")']],
-            value_input_option="USER_ENTERED"
-        )
-
-        print("Ticket Saved Successfully")
-
-        return {
-            "status": "success",
-            "ticket_id": ticket_id,
-            "created_on": created_on,
-            "photo_url": data.photo_url
-        }
-
-    except Exception as e:
-
-        print("CREATE TICKET ERROR :", repr(e))
-
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
-@app.post("/create-reorder")
-async def create_reorder(data: ReorderRequest):
-
-    try:
-
-        print("========== CREATE REORDER ==========")
-        print("Order No :", data.order_no)
-
-        sheet = get_sheet("Reorders")
-        master_sheet = get_sheet("Master sheet")
-
-        records = master_sheet.get_all_records()
-
-        customer = None
-
-        for row in records:
-            if str(row.get("Order No", "")).strip().upper() == str(data.order_no).strip().upper():
-                customer = row
-                break
-
-        print("Customer :", customer)
-
-        if customer is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Order not found in Master Sheet"
-            )
-
-        reorder_id = "REO" + datetime.now().strftime("%Y%m%d%H%M%S")
-
-        row_data = [
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            reorder_id,
-            customer.get("Mobile", ""),
-            customer.get("Client Name", ""),
-            customer.get("Order No", ""),
-            customer.get("DATE", ""),
-            "Website"
-        ]
-
-        print("ROW DATA :", row_data)
-
-        sheet.append_row(
-            row_data,
-            value_input_option="USER_ENTERED"
-        )
-
-        print("Reorder Saved Successfully")
-
-        return {
-            "status": "success",
-            "reorder_id": reorder_id
-        }
-
-    except Exception as e:
-
-        print("CREATE REORDER ERROR :", repr(e))
-
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
 @app.get("/faq")
-async def get_faq():
+def faq():
+    records = list_faq()
+    return records
 
-    try:
 
-        sheet = get_sheet("FAQ")
+@app.post("/workshop")
+def workshop(data: WorkshopRequest):
+    if not normalize_phone(data.customer_mobile):
+        raise HTTPException(status_code=400, detail="Invalid mobile number")
+    ref = save_workshop(data.model_dump())
+    total = data.labour_amount + data.parts_amount + data.amc_amount
+    return {"status": "success", "reference_id": ref, "total_amount": total}
 
-        records = sheet.get_all_records()
 
-        return records
+@app.post("/test-drive")
+def test_drive(data: TestDriveRequest):
+    if data.consent_contact != "Yes":
+        raise HTTPException(status_code=400, detail="Contact consent required")
+    booking_id = save_test_drive(data.model_dump())
+    return {
+        "status": "success",
+        "booking_id": booking_id,
+        "message": "Team will call you to confirm test drive.",
+    }
 
-    except Exception as e:
 
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
+@app.post("/ticket")
+def ticket(data: TicketRequest):
+    ticket_id = save_ticket(data.model_dump())
+    return {
+        "status": "success",
+        "ticket_id": ticket_id,
+        "created_on": datetime.now().strftime("%d %b %Y, %I:%M %p"),
+    }
+
+
+@app.post("/upload-photo")
+async def upload_photo(request: Request, file: UploadFile = File(...)):
+    filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{file.filename}"
+    path = os.path.join(UPLOAD_DIR, filename)
+    with open(path, "wb+") as out:
+        shutil.copyfileobj(file.file, out)
+    return {"status": "success", "url": str(request.base_url) + f"static/uploads/{filename}"}
 
 
 api_key = os.getenv("GEMINI_API_KEY")
+if api_key:
+    genai.configure(api_key=api_key)
 
-print("=" * 50)
-print("API KEY FOUND:", bool(api_key))
-print("API KEY PREFIX:", api_key[:10] if api_key else "None")
-print("=" * 50)
 
-genai.configure(api_key=api_key)
 @app.post("/chat-ai")
-async def chat_ai(data: ChatRequest):
+def chat_ai(data: ChatAIRequest):
+    if not api_key:
+        return {"reply": "AI is not configured. Call 9812000912 for help."}
+    prompt = f"""You are Autoveer Drive Assist for Autoveer Pvt Ltd (autoveer.com).
+Dealer for Nissan, Bajaj, Ashok Leyland, Massey Ferguson in Haryana.
+Branches: Rohtak, Karnal, Bhiwani, Kurukshetra, Ladwa, Bahadurgarh, Jhajjar, Charkhi Dadri.
+Phone: 9812000912.
 
+Workshop locations (PDF):
+- Karnal: Bajaj 2 Wheeler
+- Kurukshetra, Rohtak, Bhiwani: Bajaj 3 Wheeler
+- Rohtak, Bahadurgarh: Ashok Leyland Commercial Vehicle
+
+Help only with vehicles, service, test drives, workshops, finance, parts, branches.
+If off-topic, say you only help with Autoveer automobiles and share 9812000912.
+Keep answers short. User: {data.message}"""
     try:
-
-        print("User Message:", data.message)
-
-        prompt = f"""
-You are Mediseller Support AI.
-
-Your job is ONLY to assist customers regarding Mediseller.
-
-You are allowed to answer ONLY these topics:
-
-• Order Tracking
-• Product Reorder
-• Raise Ticket
-• Shipping & Delivery
-• Payment
-• Refund & Return
-• Product Information
-• FAQs
-• Website Support
-• Courier Information
-• Order Status
-
-STRICT RULES:
-
-1. Never answer general knowledge questions.
-2. Never answer coding or programming questions.
-3. Never answer mathematics.
-4. Never answer politics.
-5. Never answer history.
-6. Never answer sports.
-7. Never answer current affairs.
-8. Never answer questions unrelated to Mediseller.
-9. Never pretend to know something outside Mediseller support.
-
-If the user's question is NOT related to Mediseller, reply EXACTLY with:
-
-"I'm the Mediseller Support Assistant. I can only help with orders, order tracking, product information, shipping, delivery, payments, product reorders, support tickets and FAQs."
-
-Keep all replies short, professional and customer-friendly.
-
-Customer Question:
-{data.message}
-"""
-
         model = genai.GenerativeModel("gemini-2.5-flash")
-        response = model.generate_content(prompt)
-
-        print("Gemini Reply:", response.text)
-
-        return {
-            "reply": response.text
-        }
-
-    except Exception as e:
-
-        print("Gemini ERROR:", repr(e))
-
-        return {
-            "reply": "Sorry, I'm currently unable to assist. Please try again later."
-        }
-@app.post("/upload-photo")
-async def upload_photo(
-    request: Request,
-    file: UploadFile = File(...)
-):
-    try:
-        filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{file.filename}"
-        file_location = os.path.join(UPLOAD_DIR, filename)
-        with open(file_location, "wb+") as file_object:
-            shutil.copyfileobj(file.file, file_object)
-        return {
-    "status": "success",
-    "url": str(request.base_url) + f"static/uploads/{filename}"
-}
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": str(e)
-        }
-
-@app.get("/")
-async def home():
-
-    return {
-        "status": "running",
-        "message": "Mediseller Chatbot API Running"
-    }#
+        reply = model.generate_content(prompt).text
+        return {"reply": reply}
+    except Exception:
+        return {"reply": "Sorry, please try again or call 9812000912."}
