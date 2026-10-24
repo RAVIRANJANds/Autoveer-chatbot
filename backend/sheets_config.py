@@ -1,6 +1,10 @@
 """Autoveer chatbot — Google Sheets tab names & column headers (row 1)."""
 
 import os
+from dotenv import load_dotenv
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE_DIR, ".env"), override=True)
 
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "")
 

@@ -2,8 +2,17 @@ from datetime import datetime
 import os
 import shutil
 
-import google.generativeai as genai
+
+from datetime import datetime
+import os
+import shutil
+
 from dotenv import load_dotenv
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
+
+import google.generativeai as genai
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -22,8 +31,6 @@ from sheets_db import (
     normalize_phone,
 )
 
-load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
-
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "static", "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -31,7 +38,13 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 app = FastAPI(title="Autoveer Chatbot API", version="3.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://raviranjands.github.io",
+        "http://localhost:5500",
+        "http://127.0.0.1:5500",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

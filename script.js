@@ -2,7 +2,7 @@ const API_URL =
     window.location.hostname === "localhost" ||
     window.location.hostname === "127.0.0.1"
         ? "http://127.0.0.1:8000"
-        : "https://YOUR-BACKEND-URL.onrender.com";
+        : "https://autoveer-chatbot.onrender.com";
 
 const AUTOVEER_PHONE = "9812000912";
 const TYPING_TEXT = "Fetching vehicle & service data…";
