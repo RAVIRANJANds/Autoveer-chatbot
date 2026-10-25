@@ -25,7 +25,7 @@ TAB: Service_Status   (Track Service — mobile ya job card se)
 Timestamp | Mobile | Customer_Name | Job_Card_No | Vehicle_Brand | Vehicle_Model | Registration_No | Service_Status | Workshop_Location | Expected_Date | Status_Notes | Service_Type
 
 Demo row:
-2026-01-01 10:00:00 | 9812000912 | Rahul Kumar | JC2026001 | Nissan | Magnite | HR26AB1234 | In Workshop | Rohtak | 2026-01-05 | Waiting for parts | Paid Service
+2026-01-01 10:00:00 | 7827279785 | Ravi Ranjan | JC2026001 | Nissan | Magnite | HR26AB1234 | In Workshop | Rohtak | 2026-01-05 | Waiting for parts | Paid Service
 
 ================================================================================
 TAB: Workshop   (PDF proforma — chatbot form se save)

@@ -190,11 +190,11 @@ if api_key:
 @app.post("/chat-ai")
 def chat_ai(data: ChatAIRequest):
     if not api_key:
-        return {"reply": "AI is not configured. Call 9812000912 for help."}
+        return {"reply": "AI is not configured. Call 7827279785 for help."}
     prompt = f"""You are Autoveer Drive Assist for Autoveer Pvt Ltd (autoveer.com).
 Dealer for Nissan, Bajaj, Ashok Leyland, Massey Ferguson in Haryana.
 Branches: Rohtak, Karnal, Bhiwani, Kurukshetra, Ladwa, Bahadurgarh, Jhajjar, Charkhi Dadri.
-Phone: 9812000912.
+Phone: 7827279785.
 
 Workshop locations (PDF):
 - Karnal: Bajaj 2 Wheeler
@@ -202,11 +202,11 @@ Workshop locations (PDF):
 - Rohtak, Bahadurgarh: Ashok Leyland Commercial Vehicle
 
 Help only with vehicles, service, test drives, workshops, finance, parts, branches.
-If off-topic, say you only help with Autoveer automobiles and share 9812000912.
+If off-topic, say you only help with Autoveer automobiles and share 7827279785.
 Keep answers short. User: {data.message}"""
     try:
         model = genai.GenerativeModel("gemini-2.5-flash")
         reply = model.generate_content(prompt).text
         return {"reply": reply}
     except Exception:
-        return {"reply": "Sorry, please try again or call 9812000912."}
+        return {"reply": "Sorry, please try again or call 7827279785."}
