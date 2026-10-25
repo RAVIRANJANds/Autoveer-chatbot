@@ -4,7 +4,7 @@ const API_URL =
         ? "http://127.0.0.1:8000"
         : "https://autoveer-chatbot.onrender.com";
 
-const AUTOVEER_PHONE = "9812000912";
+const AUTOVEER_PHONE = "7827279785";
 const TYPING_TEXT = "Fetching vehicle & service data…";
 
 const BRANCHES = [
